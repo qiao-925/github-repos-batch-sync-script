@@ -56,7 +56,8 @@ print_success() {
 }
 
 print_debug() {
-    echo -e "${BLUE}[Debug]${NC} $1" >&2
+    # Debug 模式已关闭
+    :
 }
 
 print_step() {
