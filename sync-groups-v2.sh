@@ -9,8 +9,7 @@
 #
 # 加速配置：
 #   1. 浅克隆：自动启用 --depth 1（只克隆最新提交）
-#   2. 单分支克隆：自动启用 --single-branch（只克隆默认分支）
-#   3. Git 缓冲区：自动配置 500MB HTTP 缓冲区
+#   2. Git 缓冲区：自动配置 500MB HTTP 缓冲区
 #   4. GitHub 镜像站：在脚本中设置 GITHUB_MIRROR 变量（见下方配置）
 
 # ============================================================================
@@ -317,7 +316,7 @@ clone_repo() {
         print_debug "  尝试镜像站: $repo_url"
         
         # 尝试浅克隆
-        git clone --depth 1 --single-branch "$repo_url" "$repo_path" 2>&1
+        git clone --depth 1 "$repo_url" "$repo_path" 2>&1
         clone_exit_code=$?
         
         # 如果镜像站失败（SSL/TLS 错误或其他网络错误），回退到官方 GitHub
@@ -339,8 +338,8 @@ clone_repo() {
     fi
     
     # 使用官方 GitHub 进行浅克隆
-    print_debug "  执行浅克隆: git clone --depth 1 --single-branch"
-    git clone --depth 1 --single-branch "$repo_url" "$repo_path" 2>&1
+    print_debug "  执行浅克隆: git clone --depth 1"
+    git clone --depth 1 "$repo_url" "$repo_path" 2>&1
     clone_exit_code=$?
     
     # 如果浅克隆失败，尝试完整克隆
