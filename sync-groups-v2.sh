@@ -1157,6 +1157,173 @@ sync_group_repos() {
     fi
 }
 
+# 全局扫描差异：找出所有缺失和需要更新的仓库
+scan_global_diff() {
+    local groups=("$@")
+    
+    # 存储全局的缺失和更新仓库列表（按分组组织）
+    declare -gA global_repos_to_clone  # key: group_folder, value: "repo_full|repo_name repo_full|repo_name ..."
+    declare -gA global_repos_to_update   # key: group_folder, value: "repo_full|repo_name repo_full|repo_name ..."
+    
+    print_step "全局扫描差异，分析所有仓库状态..."
+    echo ""
+    
+    local total_expected=0
+    local total_missing=0
+    local total_to_update=0
+    local total_skipped=0
+    local total_not_found=0
+    
+    # 计算总仓库数（用于显示进度）
+    local total_repos=0
+    for input_group in "${groups[@]}"; do
+        local group_name=$(find_group_name "$input_group")
+        if [ -z "$group_name" ]; then
+            continue
+        fi
+        local group_repos=$(get_group_repos "$group_name")
+        if [ -z "$group_repos" ]; then
+            continue
+        fi
+        local repos_array
+        string_to_array repos_array "$group_repos"
+        total_repos=$((total_repos + ${#repos_array[@]}))
+    done
+    
+    print_info "📋 共需要检查 $total_repos 个仓库，开始扫描..."
+    echo ""
+    
+    local current_repo_index=0
+    local group_index=0
+    
+    # 遍历所有分组，收集缺失和更新的仓库
+    for input_group in "${groups[@]}"; do
+        local group_name=$(find_group_name "$input_group")
+        
+        if [ -z "$group_name" ]; then
+            continue
+        fi
+        
+        ((group_index++))
+        local group_folder=$(get_group_folder "$group_name")
+        local group_repos=$(get_group_repos "$group_name")
+        
+        if [ -z "$group_repos" ]; then
+            continue
+        fi
+        
+        # 创建分组文件夹（如果不存在）
+        if [ ! -d "$group_folder" ]; then
+            mkdir -p "$group_folder"
+        fi
+        
+        # 注册分组文件夹映射
+        group_folders["$group_folder"]=1
+        group_names["$group_folder"]="$group_name"
+        
+        local repos_array
+        string_to_array repos_array "$group_repos"
+        
+        local group_missing=()
+        local group_to_update=()
+        
+        print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        print_info "检查分组 [$group_index/${#groups[@]}]: $group_name (${#repos_array[@]} 个仓库)"
+        print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        
+        # 检查每个仓库的状态
+        local repo_in_group_index=0
+        for repo_name in "${repos_array[@]}"; do
+            if [ -z "$repo_name" ]; then
+                continue
+            fi
+            
+            ((current_repo_index++))
+            ((repo_in_group_index++))
+            ((total_expected++))
+            
+            # 显示检查进度
+            echo -n "  [$current_repo_index/$total_repos] 检查: $repo_name ... " >&2
+            
+            # 查找仓库完整名称
+            local repo_full=$(find_repo_full_name "$repo_name")
+            
+            if [ -z "$repo_full" ]; then
+                echo "❌ 远程不存在" >&2
+                ((total_not_found++))
+                continue
+            fi
+            
+            local repo_path="$group_folder/$repo_name"
+            
+            # 检查仓库是否存在
+            if [ -d "$repo_path/.git" ]; then
+                # 已存在 git 仓库，加入更新列表
+                group_to_update+=("$repo_full|$repo_name")
+                ((total_to_update++))
+                echo "✅ 已存在 (需更新)" >&2
+            elif [ -d "$repo_path" ]; then
+                # 目录存在但不是 git 仓库，跳过
+                echo "⚠️  目录存在但非 git 仓库 (跳过)" >&2
+                ((total_skipped++))
+                continue
+            else
+                # 新仓库，加入缺失列表
+                group_missing+=("$repo_full|$repo_name")
+                ((total_missing++))
+                echo "🔴 缺失 (需克隆)" >&2
+            fi
+        done
+        
+        # 显示分组统计
+        echo "" >&2
+        if [ ${#group_missing[@]} -gt 0 ] || [ ${#group_to_update[@]} -gt 0 ]; then
+            print_info "  分组 '$group_name' 统计："
+            if [ ${#group_missing[@]} -gt 0 ]; then
+                print_warning "    - 缺失: ${#group_missing[@]} 个"
+            fi
+            if [ ${#group_to_update[@]} -gt 0 ]; then
+                print_info "    - 已存在: ${#group_to_update[@]} 个"
+            fi
+        fi
+        echo "" >&2
+        
+        # 存储到全局数组
+        if [ ${#group_missing[@]} -gt 0 ]; then
+            global_repos_to_clone["$group_folder"]=$(printf '%s\n' "${group_missing[@]}")
+        fi
+        
+        if [ ${#group_to_update[@]} -gt 0 ]; then
+            global_repos_to_update["$group_folder"]=$(printf '%s\n' "${group_to_update[@]}")
+        fi
+    done
+    
+    echo ""
+    echo "=================================================="
+    print_info "📊 全局差异分析完成"
+    echo "=================================================="
+    echo ""
+    print_info "总体统计："
+    echo "  - 检查的仓库总数: $total_expected"
+    echo "  - 🔴 缺失的仓库（需要克隆）: $total_missing 个"
+    echo "  - ✅ 需要更新的仓库（已存在）: $total_to_update 个"
+    if [ "$total_skipped" -gt 0 ]; then
+        echo "  - ⚠️  跳过的仓库（非 git 仓库）: $total_skipped 个"
+    fi
+    if [ "$total_not_found" -gt 0 ]; then
+        echo "  - ❌ 远程不存在的仓库: $total_not_found 个"
+    fi
+    echo ""
+    
+    if [ "$total_missing" -gt 0 ]; then
+        print_warning "⚠️  发现 $total_missing 个缺失的仓库，将优先同步（优先级最高）"
+        print_info "   执行顺序：先同步所有缺失的仓库 → 再更新所有已存在的仓库"
+    elif [ "$total_to_update" -gt 0 ]; then
+        print_info "✅ 所有仓库已存在，将执行更新操作"
+    fi
+    echo ""
+}
+
 # 执行同步操作（遍历所有分组）
 execute_sync() {
     local groups=("$@")
@@ -1166,31 +1333,131 @@ execute_sync() {
     # 记录所有失败的仓库和错误信息（用于最终日志）
     declare -ga all_failed_logs=()
     
-    # 遍历每个分组
-    for input_group in "${groups[@]}"; do
-        local group_name=$(find_group_name "$input_group")
-        
-        if [ -z "$group_name" ]; then
-            print_error "未找到分组: $input_group"
-            continue
+    # 第一步：优先处理所有分组的缺失仓库（需要克隆的）
+    local total_missing_count=0
+    for group_folder in "${!global_repos_to_clone[@]}"; do
+        local repos_list="${global_repos_to_clone[$group_folder]}"
+        if [ -n "$repos_list" ]; then
+            local repos_array
+            string_to_array repos_array "$repos_list"
+            total_missing_count=$((total_missing_count + ${#repos_array[@]}))
         fi
-        
-        local group_folder=$(get_group_folder "$group_name")
-        local group_repos=$(get_group_repos "$group_name")
-        
-        if [ -z "$group_repos" ]; then
-            print_warning "分组 $group_name 中没有仓库"
-            continue
-        fi
-        
-        local repo_count=$(echo "$group_repos" | grep -c . || echo 0)
-        echo ""
-        print_info "同步分组: $group_name (共 $repo_count 个仓库)"
-        echo ""
-        
-        # 同步这个分组的所有仓库
-        sync_group_repos "$group_name" "$group_folder" "$group_repos" "all_failed_repos" "all_failed_logs"
     done
+    
+    if [ "$total_missing_count" -gt 0 ]; then
+        print_step "【优先级最高】同步所有缺失的仓库（共 $total_missing_count 个）..."
+        print_info "   缺失的仓库将优先处理，完成后才会更新已存在的仓库"
+        echo ""
+        
+        local global_index=0
+        for group_folder in "${!global_repos_to_clone[@]}"; do
+            local group_name="${group_names[$group_folder]}"
+            local repos_list="${global_repos_to_clone[$group_folder]}"
+            
+            if [ -z "$repos_list" ]; then
+                continue
+            fi
+            
+            local repos_array
+            string_to_array repos_array "$repos_list"
+            
+            if [ ${#repos_array[@]} -eq 0 ]; then
+                continue
+            fi
+            
+            print_info "处理分组 '$group_name' 的缺失仓库（${#repos_array[@]} 个）..."
+            
+            for repo_info in "${repos_array[@]}"; do
+                IFS='|' read -r repo_full repo_name <<< "$repo_info"
+                ((global_index++))
+                
+                echo "" >&2
+                print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                print_info "处理仓库 [$global_index/$total_missing_count]: $repo_name [克隆] (分组: $group_name)"
+                print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                
+                local repo_path="$group_folder/$repo_name"
+                local result
+                clone_repo "$repo_full" "$repo_path" "$global_index" "$total_missing_count" "all_failed_logs"
+                result=$?
+                
+                update_sync_statistics "$repo_path" "$result"
+                
+                if [ "$result" -ne 0 ]; then
+                    all_failed_repos+=("$repo_full|$repo_name|$group_folder")
+                fi
+            done
+        done
+        
+        echo ""
+        print_success "所有缺失仓库同步完成（$total_missing_count 个）"
+        echo ""
+    fi
+    
+    # 第二步：处理所有分组的更新仓库（已存在的）
+    local total_update_count=0
+    for group_folder in "${!global_repos_to_update[@]}"; do
+        local repos_list="${global_repos_to_update[$group_folder]}"
+        if [ -n "$repos_list" ]; then
+            local repos_array
+            string_to_array repos_array "$repos_list"
+            total_update_count=$((total_update_count + ${#repos_array[@]}))
+        fi
+    done
+    
+    if [ "$total_update_count" -gt 0 ]; then
+        if [ "$total_missing_count" -gt 0 ]; then
+            print_step "【第二步】更新所有已存在的仓库（共 $total_update_count 个）..."
+            print_info "   所有缺失的仓库已处理完成，开始更新已存在的仓库"
+        else
+            print_step "更新所有已存在的仓库（共 $total_update_count 个）..."
+        fi
+        echo ""
+        
+        local global_index=0
+        for group_folder in "${!global_repos_to_update[@]}"; do
+            local group_name="${group_names[$group_folder]}"
+            local repos_list="${global_repos_to_update[$group_folder]}"
+            
+            if [ -z "$repos_list" ]; then
+                continue
+            fi
+            
+            local repos_array
+            string_to_array repos_array "$repos_list"
+            
+            if [ ${#repos_array[@]} -eq 0 ]; then
+                continue
+            fi
+            
+            print_info "处理分组 '$group_name' 的更新仓库（${#repos_array[@]} 个）..."
+            
+            for repo_info in "${repos_array[@]}"; do
+                IFS='|' read -r repo_full repo_name <<< "$repo_info"
+                ((global_index++))
+                
+                echo "" >&2
+                print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                print_info "处理仓库 [$global_index/$total_update_count]: $repo_name [更新] (分组: $group_name)"
+                print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                
+                local repo_path="$group_folder/$repo_name"
+                local result
+                update_repo "$repo_full" "$repo_path" "$group_folder" "$global_index" "$total_update_count" "all_failed_logs"
+                result=$?
+                
+                update_sync_statistics "$repo_path" "$result"
+                
+                if [ "$result" -ne 0 ] && [ "$result" -ne 2 ]; then
+                    all_failed_repos+=("$repo_full|$repo_name|$group_folder")
+                fi
+            done
+        done
+        
+        echo ""
+        print_success "所有已存在仓库更新完成（$total_update_count 个）"
+        echo ""
+    fi
     
     # 最后统一重试：所有分组完成后，统一重试所有失败的仓库
     if [ ${#all_failed_repos[@]} -gt 0 ]; then
@@ -1264,26 +1531,29 @@ main() {
     print_info "找到 ${#groups_array[@]} 个分组，开始同步..."
     echo ""
     
-    # 4. 执行同步
+    # 4. 全局扫描差异，分析所有仓库状态
+    scan_global_diff "${groups_array[@]}"
+    
+    # 5. 执行同步（优先处理缺失的仓库，再处理更新的）
     execute_sync "${groups_array[@]}"
     
-    # 5. 构建同步仓库映射（用于清理检查）
+    # 6. 构建同步仓库映射（用于清理检查）
     declare -A sync_repos_map
     build_sync_repos_map sync_repos_map
     
-    # 6. 清理删除远程已不存在的本地仓库
+    # 7. 清理删除远程已不存在的本地仓库
     cleanup_deleted_repos group_folders sync_repos_map
     
-    # 7. 输出最终统计
+    # 8. 输出最终统计
     print_final_summary
     
-    # 8. 显示失败仓库详情
+    # 9. 显示失败仓库详情
     if [ -n "$ALL_FAILED_LOGS_ARRAY" ]; then
         local -n failed_logs=$ALL_FAILED_LOGS_ARRAY
         print_failed_repos_details failed_logs
     fi
     
-    # 9. 比较远程和本地差异，生成详细报告
+    # 10. 比较远程和本地差异，生成详细报告
     if [ -n "$ALL_FAILED_LOGS_ARRAY" ]; then
         local -n failed_logs=$ALL_FAILED_LOGS_ARRAY
         compare_remote_local_diff failed_logs
