@@ -147,6 +147,154 @@ record_error() {
 }
 
 # 输出最终统计信息
+# 比较远程和本地差异，生成详细报告
+compare_remote_local_diff() {
+    local -n failed_logs_ref=$1
+    
+    echo ""
+    echo "=================================================="
+    echo "📊 远程与本地差异分析"
+    echo "=================================================="
+    echo ""
+    
+    # 获取所有应该同步的仓库列表
+    local expected_repos=()
+    declare -A expected_repos_map=()
+    local repo_owner=$(get_github_username)
+    
+    # 遍历所有分组，收集应该同步的仓库
+    local all_groups_output=$(get_all_groups_for_sync)
+    local groups_array
+    string_to_array groups_array "$all_groups_output"
+    
+    for group_name in "${groups_array[@]}"; do
+        local group_repos=$(get_group_repos "$group_name")
+        if [ -z "$group_repos" ]; then
+            continue
+        fi
+        
+        local repos_array
+        string_to_array repos_array "$group_repos"
+        
+        for repo_name in "${repos_array[@]}"; do
+            if [ -z "$repo_name" ]; then
+                continue
+            fi
+            
+            local repo_full=$(find_repo_full_name "$repo_name")
+            if [ -n "$repo_full" ]; then
+                expected_repos+=("$repo_full")
+                expected_repos_map["$repo_full"]=1
+            fi
+        done
+    done
+    
+    # 获取所有本地已存在的仓库
+    local local_repos=()
+    declare -A local_repos_map=()
+    
+    for group_folder in "${!group_folders[@]}"; do
+        if [ -d "$group_folder" ]; then
+            shopt -s nullglob
+            for dir in "$group_folder"/*; do
+                if [ -d "$dir" ] && [ -d "$dir/.git" ]; then
+                    local repo_name=$(basename "$dir")
+                    local repo_full=$(find_repo_full_name "$repo_name")
+                    if [ -n "$repo_full" ]; then
+                        local_repos+=("$repo_full")
+                        local_repos_map["$repo_full"]=1
+                    fi
+                fi
+            done
+            shopt -u nullglob
+        fi
+    done
+    
+    # 分析差异
+    local missing_repos=()      # 应该存在但本地缺失的
+    local extra_repos=()         # 本地存在但不在同步列表中的
+    local synced_repos=()        # 成功同步的
+    
+    # 找出缺失的仓库（应该存在但本地没有）
+    for repo_full in "${expected_repos[@]}"; do
+        if [ -z "${local_repos_map[$repo_full]}" ]; then
+            missing_repos+=("$repo_full")
+        else
+            synced_repos+=("$repo_full")
+        fi
+    done
+    
+    # 找出多余的仓库（本地存在但不在同步列表中）
+    for repo_full in "${local_repos[@]}"; do
+        if [ -z "${expected_repos_map[$repo_full]}" ]; then
+            extra_repos+=("$repo_full")
+        fi
+    done
+    
+    # 统计失败但已记录的仓库
+    local failed_repos_count=0
+    if [ ${#failed_logs_ref[@]} -gt 0 ]; then
+        failed_repos_count=${#failed_logs_ref[@]}
+    fi
+    
+    # 输出统计信息
+    local total_expected=${#expected_repos[@]}
+    local total_local=${#local_repos[@]}
+    local total_synced=${#synced_repos[@]}
+    local total_missing=${#missing_repos[@]}
+    local total_extra=${#extra_repos[@]}
+    
+    print_info "📈 总体统计："
+    echo "  - 应该同步的仓库总数: $total_expected"
+    echo "  - 本地已存在的仓库总数: $total_local"
+    echo "  - 成功同步的仓库: $total_synced"
+    echo "  - 缺失的仓库（应该存在但本地没有）: $total_missing"
+    echo "  - 多余的仓库（本地有但不在同步列表）: $total_extra"
+    echo "  - 同步失败的仓库: $failed_repos_count"
+    echo ""
+    
+    # 计算同步率
+    if [ "$total_expected" -gt 0 ]; then
+        local sync_rate=$((total_synced * 100 / total_expected))
+        echo "  - 同步成功率: ${sync_rate}%"
+        echo ""
+    fi
+    
+    # 显示缺失的仓库详情
+    if [ "$total_missing" -gt 0 ]; then
+        print_warning "⚠️  缺失的仓库（$total_missing 个）："
+        local index=1
+        for repo_full in "${missing_repos[@]}"; do
+            echo "  [$index] $repo_full"
+            ((index++))
+        done
+        echo ""
+    fi
+    
+    # 显示多余的仓库详情（如果数量不多）
+    if [ "$total_extra" -gt 0 ] && [ "$total_extra" -le 20 ]; then
+        print_info "ℹ️  本地多余的仓库（$total_extra 个，不在同步列表中）："
+        local index=1
+        for repo_full in "${extra_repos[@]}"; do
+            echo "  [$index] $repo_full"
+            ((index++))
+        done
+        echo ""
+    elif [ "$total_extra" -gt 20 ]; then
+        print_info "ℹ️  本地多余的仓库: $total_extra 个（数量较多，已省略详情）"
+        echo ""
+    fi
+    
+    # 同步状态总结
+    echo "=================================================="
+    if [ "$total_missing" -eq 0 ] && [ "$failed_repos_count" -eq 0 ]; then
+        print_success "✅ 所有仓库已成功同步！"
+    elif [ "$total_missing" -gt 0 ] || [ "$failed_repos_count" -gt 0 ]; then
+        print_warning "⚠️  同步未完全完成，存在缺失或失败的仓库"
+    fi
+    echo "=================================================="
+}
+
 print_final_summary() {
     echo ""
     echo "=================================================="
@@ -215,7 +363,7 @@ retry_repo_sync() {
     sync_single_repo "$repo_full" "$repo_name" "$group_folder" "$current_index" "$total_count" "$error_log_ref"
     retry_result=$?
     
-    if [ $retry_result -eq 0 ]; then
+    if [ "$retry_result" -eq 0 ]; then
         # 注意：sync_single_repo 内部已经调用了 update_sync_statistics
         # 第一次失败时已经统计为失败，所以需要减少失败计数
         ((SYNC_STATS_FAIL--))
@@ -464,12 +612,12 @@ clone_repo() {
     
     # 如果失败，获取错误信息
     local clone_output=""
-    if [ $clone_exit_code -ne 0 ]; then
+    if [ "$clone_exit_code" -ne 0 ]; then
         # 失败时尝试获取错误信息（但可能已经输出到终端了）
         clone_output="克隆失败，退出代码: $clone_exit_code"
     fi
     
-    if [ $clone_exit_code -eq 0 ]; then
+    if [ "$clone_exit_code" -eq 0 ]; then
         echo "✓ 成功（耗时 ${clone_duration}秒）" >&2
         print_success "  克隆成功: $repo_path"
         return 0
@@ -517,21 +665,21 @@ execute_git_pull() {
     local branch=$1
     local pull_exit_code=1
     
-    # 尝试拉取
-    git pull --no-edit --rebase origin "$branch" 2>&1
+    # 尝试拉取（输出重定向到 stderr，避免被 $() 捕获）
+    git pull --no-edit --rebase origin "$branch" >&2
     pull_exit_code=$?
     
     # 如果失败，尝试普通 pull
-    if [ $pull_exit_code -ne 0 ]; then
+    if [ "$pull_exit_code" -ne 0 ]; then
         [ -f ".git/REBASE_HEAD" ] && git rebase --abort >/dev/null 2>&1
-        git pull --no-edit origin "$branch" 2>&1
+        git pull --no-edit origin "$branch" >&2
         pull_exit_code=$?
     fi
     
     # 如果还是失败，尝试直接拉取
-    if [ $pull_exit_code -ne 0 ]; then
+    if [ "$pull_exit_code" -ne 0 ]; then
         [ -f ".git/MERGE_HEAD" ] && git merge --abort >/dev/null 2>&1
-        git pull --no-edit 2>&1
+        git pull --no-edit >&2
         pull_exit_code=$?
     fi
     
@@ -577,7 +725,7 @@ update_repo() {
     
     # 如果失败，获取错误信息
     local pull_output=""
-    if [ $pull_exit_code -ne 0 ]; then
+    if [ "$pull_exit_code" -ne 0 ]; then
         pull_output="拉取失败，退出代码: $pull_exit_code"
     fi
     
@@ -586,7 +734,7 @@ update_repo() {
         git stash pop >/dev/null 2>&1
     fi
     
-    if [ $pull_exit_code -eq 0 ]; then
+    if [ "$pull_exit_code" -eq 0 ]; then
         local after_hash=$(git rev-parse HEAD 2>/dev/null || echo "")
         if [ "$before_hash" != "$after_hash" ] && [ -n "$before_hash" ] && [ -n "$after_hash" ]; then
             print_info "    仓库已更新（${before_hash:0:8} -> ${after_hash:0:8}）"
@@ -715,7 +863,7 @@ cleanup_deleted_repos() {
             local rm_output=$(rm -rf "$repo_path" 2>&1)
             local rm_exit=$?
             
-            if [ $rm_exit -eq 0 ]; then
+            if [ "$rm_exit" -eq 0 ]; then
                 echo "✓ 已删除"
                 ((delete_count++))
                 print_success "  已成功删除: $repo_path"
@@ -731,7 +879,7 @@ cleanup_deleted_repos() {
         fi
     done
     
-    if [ $delete_count -eq 0 ]; then
+    if [ "$delete_count" -eq 0 ]; then
         print_info "没有需要删除的本地仓库。"
     else
         echo ""
@@ -841,7 +989,6 @@ sync_group_repos_main() {
     string_to_array repos_array "$group_repos"
     
     local total_count=${#repos_array[@]}
-    local current_index=0
     
     # 记录失败的仓库（用于最后统一重试）
     local failed_repos=()
@@ -850,44 +997,130 @@ sync_group_repos_main() {
     print_info "分组文件夹: $group_folder"
     echo "" >&2
     
-    # 遍历数组而不是重新读取字符串
+    # 创建分组文件夹（如果不存在）
+    if [ ! -d "$group_folder" ]; then
+        mkdir -p "$group_folder"
+    fi
+    
+    # 第一步：分类仓库 - 区分需要克隆的（缺失）和需要更新的（已存在）
+    local repos_to_clone=()  # 需要克隆的仓库（缺失的）
+    local repos_to_update=() # 需要更新的仓库（已存在的）
+    
+    print_info "检查仓库状态，分类处理..."
     for repo_name in "${repos_array[@]}"; do
-        
         if [ -z "$repo_name" ]; then
             continue
         fi
-        
-        ((current_index++))
-        
-        echo "" >&2
-        print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        print_info "处理仓库 [$current_index/$total_count]: $repo_name"
-        print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         
         # 查找仓库完整名称
         local repo_full=$(find_repo_full_name "$repo_name")
         
         if [ -z "$repo_full" ]; then
-            echo "[$current_index/$total_count] [错误] $repo_name - 远程仓库不存在" >&2
+            echo "[错误] $repo_name - 远程仓库不存在" >&2
             record_error "$error_log_ref" "$repo_name" "错误" "远程仓库不存在"
             update_sync_statistics "" 1
             continue
         fi
         
-        # 同步单个仓库
-        local result
-        sync_single_repo "$repo_full" "$repo_name" "$group_folder" "$current_index" "$total_count" "$error_log_ref"
-        result=$?
-        
-        # 更新统计信息
         local repo_path="$group_folder/$repo_name"
-        update_sync_statistics "$repo_path" "$result"
         
-        # 记录失败的仓库（用于重试）
-        if [ $result -ne 0 ] && [ $result -ne 2 ]; then
-            failed_repos+=("$repo_full|$repo_name")
+        # 检查仓库是否存在
+        if [ -d "$repo_path/.git" ]; then
+            # 已存在 git 仓库，加入更新列表
+            repos_to_update+=("$repo_full|$repo_name")
+        elif [ -d "$repo_path" ]; then
+            # 目录存在但不是 git 仓库，跳过
+            echo "[跳过] $repo_name - 目录已存在但不是 git 仓库" >&2
+            record_error "$error_log_ref" "$repo_name" "跳过" "目录已存在但不是 git 仓库"
+            update_sync_statistics "$repo_path" 2
+        else
+            # 新仓库，加入克隆列表
+            repos_to_clone+=("$repo_full|$repo_name")
         fi
     done
+    
+    local clone_count=${#repos_to_clone[@]}
+    local update_count=${#repos_to_update[@]}
+    
+    echo "" >&2
+    print_info "仓库分类完成："
+    print_info "  - 需要克隆（缺失）: $clone_count 个"
+    print_info "  - 需要更新（已存在）: $update_count 个"
+    echo "" >&2
+    
+    # 第二步：优先处理需要克隆的仓库（缺失的）
+    if [ "$clone_count" -gt 0 ]; then
+        print_step "优先同步缺失的仓库（$clone_count 个）..."
+        echo "" >&2
+        
+        local current_index=0
+        for repo_info in "${repos_to_clone[@]}"; do
+            IFS='|' read -r repo_full repo_name <<< "$repo_info"
+            ((current_index++))
+            
+            echo "" >&2
+            print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            print_info "处理仓库 [$current_index/$clone_count]: $repo_name [克隆]"
+            print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            # 执行克隆
+            local repo_path="$group_folder/$repo_name"
+            local result
+            clone_repo "$repo_full" "$repo_path" "$current_index" "$clone_count" "$error_log_ref"
+            result=$?
+            
+            # 更新统计信息
+            update_sync_statistics "$repo_path" "$result"
+            
+            # 记录失败的仓库（用于重试）
+            if [ "$result" -ne 0 ]; then
+                failed_repos+=("$repo_full|$repo_name")
+            fi
+        done
+        
+        echo "" >&2
+        if [ "$clone_count" -gt 0 ]; then
+            print_success "缺失仓库同步完成（$clone_count 个）"
+            echo "" >&2
+        fi
+    fi
+    
+    # 第三步：处理需要更新的仓库（已存在的）
+    if [ "$update_count" -gt 0 ]; then
+        print_step "更新已存在的仓库（$update_count 个）..."
+        echo "" >&2
+        
+        local current_index=0
+        for repo_info in "${repos_to_update[@]}"; do
+            IFS='|' read -r repo_full repo_name <<< "$repo_info"
+            ((current_index++))
+            
+            echo "" >&2
+            print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            print_info "处理仓库 [$current_index/$update_count]: $repo_name [更新]"
+            print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            
+            # 执行更新
+            local repo_path="$group_folder/$repo_name"
+            local result
+            update_repo "$repo_full" "$repo_path" "$group_folder" "$current_index" "$update_count" "$error_log_ref"
+            result=$?
+            
+            # 更新统计信息
+            update_sync_statistics "$repo_path" "$result"
+            
+            # 记录失败的仓库（用于重试）
+            if [ "$result" -ne 0 ] && [ "$result" -ne 2 ]; then
+                failed_repos+=("$repo_full|$repo_name")
+            fi
+        done
+        
+        echo "" >&2
+        if [ "$update_count" -gt 0 ]; then
+            print_success "已存在仓库更新完成（$update_count 个）"
+            echo "" >&2
+        fi
+    fi
     
     # 返回失败的仓库列表（用于最后统一重试）
     array_to_string "${failed_repos[@]}"
@@ -981,14 +1214,14 @@ execute_sync() {
         # 更新失败统计（重试成功的应该从失败计数中减去）
         # 注意：retry_repo_sync 内部已经调用了 update_sync_statistics 来增加成功计数
         # 但第一次失败时已经统计为失败，所以需要减少失败计数
-        if [ $retry_success_count -gt 0 ]; then
+        if [ "$retry_success_count" -gt 0 ]; then
             SYNC_STATS_FAIL=$((SYNC_STATS_FAIL - retry_success_count))
             print_success "重试成功恢复 $retry_success_count 个仓库"
         fi
         
         local final_failed_count=$((${#all_failed_repos[@]} - retry_success_count))
         echo ""
-        if [ $final_failed_count -gt 0 ]; then
+        if [ "$final_failed_count" -gt 0 ]; then
             print_warning "重试完成，仍有 $final_failed_count 个仓库失败"
         else
             print_success "重试完成，所有仓库已成功同步"
@@ -1048,6 +1281,15 @@ main() {
     if [ -n "$ALL_FAILED_LOGS_ARRAY" ]; then
         local -n failed_logs=$ALL_FAILED_LOGS_ARRAY
         print_failed_repos_details failed_logs
+    fi
+    
+    # 9. 比较远程和本地差异，生成详细报告
+    if [ -n "$ALL_FAILED_LOGS_ARRAY" ]; then
+        local -n failed_logs=$ALL_FAILED_LOGS_ARRAY
+        compare_remote_local_diff failed_logs
+    else
+        declare -a empty_failed_logs=()
+        compare_remote_local_diff empty_failed_logs
     fi
 }
 
