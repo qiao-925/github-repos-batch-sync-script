@@ -6,6 +6,8 @@
 !scripts/
 !workspaces/
 !docs/
+!.cursor/
+!.cursor/rules/
 
 # 保留根目录下的配置文件
 !*.sh
