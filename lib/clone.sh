@@ -2,11 +2,42 @@
 # 仓库克隆模块：实现单个仓库的克隆操作
 #
 # 主要功能：
-#   - clone_repo()：克隆单个仓库，使用 Git 并行传输参数
+#   - clone_repo()：克隆单个仓库，使用 Git 并行传输参数和优化配置
 #
 # 特性：
+#   - 自动选择最优协议（SSH 优先，回退到 HTTPS）
+#   - Git 配置优化（网络、压缩、多线程）
 #   - 直接克隆，不检查是否存在（覆盖）
 #   - 失败时输出错误信息
+
+# 检测并选择最优协议（SSH 优先，回退到 HTTPS）
+get_repo_url() {
+    local repo_full="$1"
+    
+    # 检测 SSH 是否可用（静默检测，避免输出干扰）
+    if ssh -o BatchMode=yes -o ConnectTimeout=2 -T git@github.com 2>&1 | grep -q "successfully authenticated" 2>/dev/null; then
+        echo "git@github.com:${repo_full}.git"
+    else
+        echo "https://github.com/${repo_full}.git"
+    fi
+}
+
+# 获取 CPU 核心数
+get_cpu_cores() {
+    local cores
+    if command -v nproc >/dev/null 2>&1; then
+        cores=$(nproc)
+    elif [[ -f /proc/cpuinfo ]]; then
+        cores=$(grep -c processor /proc/cpuinfo 2>/dev/null || echo 8)
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        cores=$(sysctl -n hw.ncpu 2>/dev/null || echo 8)
+    else
+        cores=8  # 默认值
+    fi
+    # 确保至少为 1
+    [[ $cores -lt 1 ]] && cores=8
+    echo "$cores"
+}
 
 # 克隆单个仓库
 # 参数：
@@ -40,16 +71,23 @@ clone_repo() {
     # 确保目标文件夹的父目录存在
     mkdir -p "$group_folder"
     
-    # 构建仓库 URL（使用 HTTPS）
-    local repo_url="https://github.com/${repo_full}.git"
+    # 获取最优仓库 URL（SSH 优先，回退到 HTTPS）
+    local repo_url=$(get_repo_url "$repo_full")
+    local cpu_cores=$(get_cpu_cores)
     
-    # 执行克隆，使用 --jobs 参数实现并行传输，--progress 显示进度
+    # 执行克隆，使用优化的 Git 配置和并行传输参数
     log_info "开始克隆: $repo_full -> $target_path"
     
-    # 使用 --progress 显示 Git 的进度输出
-    # Git 的进度信息默认输出到 stderr，不要重定向，让它直接输出（实时显示）
-    # 不使用 2>&1，避免输出被缓冲
-    if git clone --progress --jobs "$parallel_connections" "$repo_url" "$target_path"; then
+    # 使用优化的 Git 配置执行克隆
+    # -c 参数临时设置配置，不影响全局 Git 配置
+    if git -c http.postBuffer=524288000 \
+           -c http.lowSpeedLimit=0 \
+           -c http.lowSpeedTime=0 \
+           -c http.version=HTTP/2 \
+           -c pack.windowMemory=1073741824 \
+           -c pack.threads="$cpu_cores" \
+           -c core.compression=1 \
+           clone --progress --jobs "$parallel_connections" "$repo_url" "$target_path"; then
         log_success "克隆成功: $repo_full"
         set -e
         return 0
@@ -63,4 +101,3 @@ clone_repo() {
         return 1
     fi
 }
-
