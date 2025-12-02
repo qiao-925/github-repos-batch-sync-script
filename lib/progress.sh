@@ -17,12 +17,14 @@ update_progress_line() {
     local color_green=${COLOR_GREEN:-'\033[0;32m'}
     local color_red=${COLOR_RED:-'\033[0;31m'}
     
-    # 检查是否需要添加颜色（使用 bash 内置字符串替换，更高效）
+    # 检查是否需要添加颜色（整行着色）
     local colored_text="$status_text"
-    if [[ "$status_text" =~ 完成: ]]; then
-        colored_text="${status_text//完成:/${color_green}完成:${color_reset}}"
-    elif [[ "$status_text" =~ 失败: ]]; then
-        colored_text="${status_text//失败:/${color_red}失败:${color_reset}}"
+    if [[ "$status_text" =~ 完成: ]] || [[ "$status_text" =~ ✓ ]]; then
+        # 整行标为绿色
+        colored_text="${color_green}${status_text}${color_reset}"
+    elif [[ "$status_text" =~ 失败: ]] || [[ "$status_text" =~ ✗ ]]; then
+        # 整行标为红色
+        colored_text="${color_red}${status_text}${color_reset}"
     fi
     
     # 直接输出状态信息

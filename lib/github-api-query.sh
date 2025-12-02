@@ -42,29 +42,38 @@ init_github_connection() {
     
     # http.postBuffer: 增加 HTTP POST 缓冲区大小（默认 1MB，增加到 500MB）
     # 对于大仓库，更大的缓冲区可以减少网络往返次数，提升传输效率
+    local post_buffer_mb=$((GIT_POST_BUFFER_SIZE / 1024 / 1024))
     git config --global http.postBuffer "$GIT_POST_BUFFER_SIZE" 2>/dev/null || true
+    print_info "  - http.postBuffer: ${post_buffer_mb}MB"
     
     # http.lowSpeedLimit 和 http.lowSpeedTime: 降低低速传输阈值
     # 避免在高速网络下被误判为低速连接而中断
     git config --global http.lowSpeedLimit 0 2>/dev/null || true
     git config --global http.lowSpeedTime 0 2>/dev/null || true
+    print_info "  - http.lowSpeedLimit: 0"
+    print_info "  - http.lowSpeedTime: 0"
     
     # http.version: 使用 HTTP/2（如果支持）
     # HTTP/2 支持多路复用，可以更高效地利用带宽
     git config --global http.version HTTP/2 2>/dev/null || true
+    print_info "  - http.version: HTTP/2"
     
     # pack.windowMemory: 增加 pack 窗口内存（默认 256MB，增加到 1GB）
     # 更大的窗口可以更高效地压缩和传输数据
+    local window_memory_gb=$((GIT_PACK_WINDOW_MEMORY / 1024 / 1024 / 1024))
     git config --global pack.windowMemory "$GIT_PACK_WINDOW_MEMORY" 2>/dev/null || true
+    print_info "  - pack.windowMemory: ${window_memory_gb}GB"
     
     # pack.threads: 使用多线程进行 pack 操作（默认自动，显式设置为 CPU 核心数）
     # 充分利用多核 CPU 加速压缩和解压
     local cpu_cores=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "$GIT_DEFAULT_CPU_CORES")
     git config --global pack.threads "$cpu_cores" 2>/dev/null || true
+    print_info "  - pack.threads: $cpu_cores"
     
     # core.compression: 使用更快的压缩级别（0-9，默认 6，改为 1 以速度优先）
     # 在高速网络下，压缩时间可能成为瓶颈，降低压缩级别可以提升速度
     git config --global core.compression 1 2>/dev/null || true
+    print_info "  - core.compression: 1"
     
     print_success "Git 网络优化配置完成"
 }
