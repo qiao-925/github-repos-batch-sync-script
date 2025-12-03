@@ -2,7 +2,7 @@
 
 仓库所有者: qiao-925
 
-## Go-Practice <!-- 397.8号高地 -->
+## Go-Practice <!-- 小火龙 -->
 - Peters-Go-Day-Practice
 - Practice-Go-by-Example-
 - go-admin
@@ -17,7 +17,7 @@
 - GoLearn
 - gitea
 
-## Java-Practice <!-- 597.9号高地 -->
+## Java-Practice <!-- 杰尼龟 -->
 - incubator-seata
 - distribute-transaction
 - incubator-kie-drools
@@ -37,7 +37,7 @@
 - learn-rocketmq-by-cursor
 - Strategy-pattern-demo
 
-## AI-Practice <!-- 1071.1号高地 -->
+## AI-Practice <!-- 皮卡丘 -->
 - Creating-Systematology-RAG
 - Creating-Systematology-Test
 - Creating-Systematology
@@ -47,7 +47,7 @@
 - ocr-mcp-service
 - repo-content-classification
 
-## Tools <!-- 382号高地 -->
+## Tools <!-- 可达鸭 -->
 - gh-repos-batch-clone
 - get_jobs
 - geekgeekrun
@@ -55,7 +55,7 @@
 - mattermost
 - examples
 
-## Daily <!-- 112号高地 -->
+## Daily <!-- 妙蛙种子 -->
 - Assemble
 - Inspiration
 - qiao-925
