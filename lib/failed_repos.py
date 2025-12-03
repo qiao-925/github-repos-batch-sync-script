@@ -46,7 +46,7 @@ def save_failed_repos(
         如果 failed_tasks 为空，不会创建文件（文件应该已经在执行开始时被清空）
     """
     if not failed_tasks:
-        # 如果没有失败任务，确保文件不存在（与 Bash 版本保持一致）
+        # 如果没有失败任务，确保文件不存在
         if failed_repos_file.exists():
             try:
                 failed_repos_file.unlink()

@@ -1,16 +1,12 @@
 # GitHub 仓库批量分类克隆脚本
 
-**批量克隆 GitHub 仓库**，采用**双重并行加速**技术（应用层多仓库并发 + Git 层多连接传输），大幅提升克隆速度。结合独特的**军事高地编号体系**，实现仓库的智能分类与高效管理。
+**批量克隆 GitHub 仓库**，采用**双重并行加速**技术（应用层多仓库并发 + Git 层多连接传输），大幅提升克隆速度。支持**多种主题分类体系**（军事高地、宝可梦、奥特曼、铠甲勇士等，如皮肤般可切换），实现仓库的智能分类与高效管理。
 
-**支持两种实现版本**：
-- **Python 版本**（推荐）：`main.py` - 代码更清晰，易于维护
-- **Bash 版本**：`main.sh` - 无需额外依赖，直接运行
+**Python 实现**：`main.py` - 代码清晰，易于维护
 
 ## 一、📋 常用命令速查
 
 > **最常用的命令都在这里，快速查找，直接使用！**
-
-### Python 版本（推荐）
 
 #### 基础克隆命令
 ```bash
@@ -51,40 +47,9 @@ python main.py -t 3 -c 4
 python main.py -t 20 -c 32
 ```
 
-### Bash 版本
-
-#### 基础克隆命令
-```bash
-# 使用默认参数，从 REPO-GROUPS.md 解析所有仓库（最常用）
-bash main.sh
-
-# 自定义并行参数
-bash main.sh -t 10 -c 16
-
-# 从失败列表重新执行失败的仓库
-bash main.sh -f failed-repos.txt
-
-# 从自定义列表文件执行
-bash main.sh -f custom-list.md
-```
-
-#### 高级用法
-```bash
-# 查看帮助信息
-bash main.sh --help
-
-# 低带宽优化配置
-bash main.sh -t 3 -c 4
-
-# 超高带宽配置（300Mbps+）
-bash main.sh -t 20 -c 32
-```
-
 ---
 
 ## 二、🚀 快速开始
-
-### Python 版本（推荐）
 
 1. **安装 Python**（需要 Python 3.7+）：
    ```bash
@@ -109,36 +74,6 @@ bash main.sh -t 20 -c 32
    python main.py
    ```
 
-### Bash 版本
-
-1. **安装 GitHub CLI**（如果未安装）：
-   ```bash
-   # Windows (使用 Chocolatey)
-   choco install gh
-   
-   # macOS (使用 Homebrew)
-   brew install gh
-   
-   # Linux
-   # 参考: https://cli.github.com/
-   ```
-
-2. **登录认证**：
-   ```bash
-   gh auth login
-   ```
-
-3. **创建分类文档**（使用 AI 辅助）：
-   - 打开 `GitHub 仓库分类 Prompt.md`
-   - 在 Cursor 中执行：`@GitHub 仓库分类 Prompt.md 执行当前prompt`
-   - 确认后保存为 `REPO-GROUPS.md`
-
-4. **开始克隆**：
-   ```bash
-   # 使用默认参数，从 REPO-GROUPS.md 解析所有仓库
-   bash main.sh
-   ```
-
 ## 三、🎯 核心特点
 
 ### 🚀 一键批量克隆
@@ -151,10 +86,10 @@ bash main.sh -t 20 -c 32
 **性能优化**：自动选择最优协议（SSH 优先，回退到 HTTPS）+ Git 配置优化（HTTP/2、大缓冲区、多线程压缩），在高带宽环境下可提升 25-55% 的克隆速度。
 
 ### 📁 高效组织管理
-**清晰结构**：每个分组自动创建独立文件夹（格式：`组名 (高地编号)`），所有仓库按分组清晰组织。
+**清晰结构**：每个分组自动创建独立文件夹（格式：`组名 (主题标签)`），所有仓库按分组清晰组织。
 
-### ⚔️ 军事高地编号体系
-**独特特色**：使用历史上著名高地编号（如 `597.9高地`、`382高地`）作为分组代号，以"攻占高地"的心态专注管理项目，增强记忆和识别度。
+### 🎨 多种主题分类体系
+**独特特色**：支持多种主题分类体系（军事高地、宝可梦、奥特曼、铠甲勇士等，如皮肤般可切换），为分组添加有趣的标签作为代号，增强记忆和识别度。可根据个人喜好选择不同的主题体系。
 
 ### 🎯 极简设计
 **设计理念**：保持极简，只保留核心功能，去除所有非必要的复杂逻辑，易于理解和维护。
@@ -281,34 +216,28 @@ bash main.sh -t 20 -c 32
 ### 主要工作流程
 
 ```
-开始 (main.sh)
+开始 (main.py)
   │
   ├─→ [1] 解析命令行参数
-  │     └─ parse_args()
+  │     └─ parse_args() [lib/args.py]
   │         ├─ 解析 -t 参数（并行任务数，默认 5）
   │         └─ 解析 -c 参数（并行传输数，默认 8）
   │
   ├─→ [2] 获取任务列表
   │     ├─ 如果指定 -f 参数：从文件读取任务列表
   │     └─ 否则：解析 REPO-GROUPS.md，提取所有分组和仓库
-  │         └─ parse_repo_groups() [lib/config.sh]
+  │         └─ parse_repo_groups() [lib/config.py]
   │
   ├─→ [3] 构建克隆任务列表
   │     └─ 任务格式：repo_full|repo_name|group_folder|group_name
   │
   ├─→ [4] 并行执行克隆
-  │     └─ execute_parallel_clone() [main.sh]
-  │         ├─ 使用后台进程 + wait 实现并行控制
-  │         └─ 并行调用 clone_repo() [lib/clone.sh]
+  │     └─ execute_parallel_clone() [lib/parallel.py]
+  │         ├─ 使用 ThreadPoolExecutor 实现并行控制
+  │         └─ 并行调用 clone_repo() [lib/clone.py]
   │             ├─ 自动选择协议（SSH 优先，回退到 HTTPS）
   │             ├─ 应用 Git 配置优化（HTTP/2、大缓冲区、多线程）
   │             └─ 使用 git clone --jobs $CONNECTIONS
-  │             ├─ 自动选择协议（SSH 优先，回退到 HTTPS）
-  │             ├─ 应用 Git 配置优化（HTTP/2、大缓冲区、多线程）
-  │             └─ 使用 git clone --jobs $CONNECTIONS
-  │
-  ├─→ [5] 记录失败列表
-  │     └─ 将失败的仓库保存到 failed-repos.txt
   │
   ├─→ [5] 检查仓库完整性（克隆成功后）
   │     └─ check_repos_parallel() [lib/check.py]
@@ -317,16 +246,16 @@ bash main.sh -t 20 -c 32
   │
   ├─→ [6] 记录失败列表
   │     └─ 将克隆失败和检查失败的仓库保存到 failed-repos.txt
+  │         └─ save_failed_repos() [lib/failed_repos.py]
   │
   └─→ [7] 输出最终统计
-        └─ print_summary()
+        └─ print_summary() [main.py]
             ├─ 显示成功/失败统计
             └─ 显示耗时统计
 ```
 
 ### 模块化架构
 
-**Python 版本**：
 ```
 main.py (主入口)
   │
@@ -338,15 +267,6 @@ main.py (主入口)
   ├── lib/args.py (参数解析)
   ├── lib/paths.py (路径处理)
   └── lib/check.py (仓库完整性检查)
-```
-
-**Bash 版本**：
-```
-main.sh (主入口)
-  │
-  ├── lib/logger.sh (日志输出)
-  ├── lib/config.sh (配置解析)
-  └── lib/clone.sh (仓库克隆)
 ```
 
 **模块依赖关系**: logger → config/clone → main
@@ -375,14 +295,4 @@ main.sh (主入口)
 | `lib/paths.py` | ~50 | **路径处理模块**：跨平台路径处理 |
 | `lib/check.py` | ~100 | **仓库完整性检查模块**：使用 git fsck 验证仓库完整性 |
 | **总计** | **~890** | **9 个文件** |
-
-#### Bash 版本文件列表
-
-| 文件 | 行数 | 功能说明 |
-|------|------|----------|
-| `main.sh` | ~437 | **主入口**：解析命令行参数、协调各模块执行、并行任务管理 |
-| `lib/config.sh` | ~96 | **配置解析模块**：解析 REPO-GROUPS.md，提取分组和仓库信息 |
-| `lib/clone.sh` | ~104 | **仓库克隆模块**：实现单个仓库克隆，使用 --jobs 参数 |
-| `lib/logger.sh` | ~50 | **日志输出模块**：提供统一的日志输出功能 |
-| **总计** | **~687** | **4 个文件** |
 

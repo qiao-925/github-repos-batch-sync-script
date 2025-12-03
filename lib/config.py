@@ -93,12 +93,10 @@ def parse_repo_groups(config_file: Optional[str] = None) -> List[Dict[str, str]]
         log_error("仓库所有者信息为空")
         raise SystemExit(1)
     
-    # 正则表达式模式（与 Bash 版本保持一致）
+    # 正则表达式模式
     # 匹配分组标题：## 分组名 <!-- 高地编号 -->
-    # Bash 版本：'^##[[:space:]]+([^<]+)[[:space:]]*<!--[[:space:]]*([^>]+)[[:space:]]*-->'
     group_pattern = re.compile(r'^##\s+(.+?)\s*<!--\s*(.+?)\s*-->')
     # 匹配仓库列表项：- 仓库名
-    # Bash 版本：'^-[[:space:]]+([^[:space:]]+)'
     repo_pattern = re.compile(r'^-\s+(\S+)')
     
     tasks = []

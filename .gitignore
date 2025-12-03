@@ -4,3 +4,10 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# 忽略 Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python

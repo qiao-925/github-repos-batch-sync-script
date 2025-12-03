@@ -105,7 +105,7 @@ def main() -> int:
     total_repos = len(tasks)
     log_info(f"找到 {total_repos} 个仓库任务")
     
-    # 每次执行开始时，先清空失败列表文件（与 Bash 版本保持一致）
+    # 每次执行开始时，先清空失败列表文件
     if FAILED_REPOS_FILE.exists():
         try:
             FAILED_REPOS_FILE.unlink()

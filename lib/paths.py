@@ -12,7 +12,7 @@ from typing import Optional
 
 
 def get_script_dir() -> Path:
-    """获取脚本所在目录（相当于 Bash 的 SCRIPT_DIR）"""
+    """获取脚本所在目录"""
     # 获取当前文件的绝对路径，然后获取其父目录
     return Path(__file__).parent.parent.resolve()
 
